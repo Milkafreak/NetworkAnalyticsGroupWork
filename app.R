@@ -78,22 +78,29 @@ library(ggplot2)
   
   
   server <- function(input, output){
-    output$plot <- renderPlot({
+    
+     output$plot <- renderPlot({
       
-      entity.type.plot <- function(g.trump, entity_type_1, entity_type_2) {
-        entity_connection <- paste(entity_type_1, entity_type_2, sep="")
+      entity_connection <- input$var
+      #entity.type.plot <- function(g.trump, entity_type_1, entity_type_2) {
+        #entity_connection <- paste(entity_type_1, entity_type_2, sep="")
+        entity_connection <- gsub("-","",entity_connection)
         el <- get.edgelist(g.trump)
         E(g.trump)$entity_type_connection <- paste(V(g.trump)[el[, 1]]$Entity_Type, V(g.trump)[el[, 2]]$Entity_Type, sep = "")
         if (entity_connection == "PersonPerson") {
           edges.to.keep <- E(g.trump)[which(E(g.trump)$entity_type_connection == "PersonPerson")]
         } else if (entity_connection == "OrganizationOrganization") {
           edges.to.keep <- E(g.trump)[which(E(g.trump)$entity_type_connection == "OrganizationOrganization")]
-        } else {edges.to.keep <- E(g.trump)[which(E(g.trump)$entity_type_connection == c("OrganizationPerson", "PersonOrganization"))]
-        } 
+        } else if (entity_connection == "PersonOrganization")
+          {edges.to.keep <- E(g.trump)[which(E(g.trump)$entity_type_connection == c("OrganizationPerson", "PersonOrganization"))]
+        } else {
+          edges.to.keep <- E(g.trump)
+        }
         g.trump.filtered <- subgraph.edges(g.trump, eids = edges.to.keep, delete.vertices = TRUE)
-        #plot(g.trump.filtered)
+        plot(g.trump.filtered,vertex.size = 0.05, vertex.label = NA)
         V(g.trump.filtered)
-      }
+        #plot(g.trump)
+      #}
     
   })
 }
@@ -106,23 +113,29 @@ library(ggplot2)
 #UI
 
 ui <- navbarPage("TrumpWorld Data", 
-                 theme = bs_theme(bg = "white",
-                                  fg = "midnightblue",
-                                  primary = "maroon",
-                                  base_font = font_google("Montserrat")),
+                 #theme = bs_theme(bg = "white",
+                  #                fg = "midnightblue",
+                   #               primary = "maroon",
+                     #             base_font = font_google("Montserrat")),
                  
                  tabPanel(
                    "Descriptive Statistics", icon = icon("bar-chart-o"),
                    sidebarLayout(
                      sidebarPanel(
+                       
+                       
                        selectInput("var", 
                                    label = "Choose a connection to display",
                                    choices = c("Person-Person", 
                                                "Organization-Organizarion",
-                                               "Person-Organization"),
-                                   selected = "Person-Person")
+                                               "Person-Organization","All"),
+                                   selected = "Person-Person"),
+                       sliderInput("integer", "Integer:",
+                                   min = 0, max = 1000,
+                                   value = 500)
+                       
                        ),
-                     mainPanel(plotOutput("entity.type.plot"))
+                     mainPanel(plotOutput(outputId = "plot"))
                      )
                    ),
                  tabPanel('Network Exploration',icon = icon("link", lib = "font-awesome")),
@@ -134,7 +147,7 @@ ui <- navbarPage("TrumpWorld Data",
 
 shinyApp(ui, server)
 # Run the application 
-#shinyApp(ui = ui, server = server)
+shinyApp(ui = ui, server = server)
 
 #library(rsconnect)
 #rsconnect::deployApp('C:/Users/ievap/OneDrive/Desktop/Mokslai/Network Ananlytics/Group work')
