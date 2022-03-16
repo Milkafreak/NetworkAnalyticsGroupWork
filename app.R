@@ -56,6 +56,15 @@ library(ggplot2)
   g.trump <- graph.data.frame(dt.trump.connections, directed = FALSE, vertices = dt.unique.entities.attributes)
   #plot(g.trump, vertex.size = 0.05, vertex.label = NA)
   
+  by_type <- dt.unique.entities.attributes %>% count(Entity_Type)
+  dt.by_type <- data.table(by_type)
+  
+  
+  count.connections <- dt.trump.connections %>% count(Connection)
+
+  count.connections.order <- count.connections[order(-count.connections$n,),]
+  dt.count.connections.order <- data.table(count.connections.order)
+  
   # Basic descriptive statistics
   #total.entities.type <- function(entity_type_category) {
     #dt.unique.entities.attributes[Entity_Type == entity_type_category, .N]
@@ -70,18 +79,15 @@ library(ggplot2)
   
   #Create top N by organization type
   
-  
   # Create function to build subgraphs
   
-  
-  ###################################################################################################################################
-  
+  ##################################################################################################################################
   
   server <- function(input, output){
     
      output$plot <- renderPlot({
       
-      entity_connection <- input$var
+      entity_connection <- input$connection
       #entity.type.plot <- function(g.trump, entity_type_1, entity_type_2) {
         #entity_connection <- paste(entity_type_1, entity_type_2, sep="")
         entity_connection <- gsub("-","",entity_connection)
@@ -98,11 +104,15 @@ library(ggplot2)
         }
         g.trump.filtered <- subgraph.edges(g.trump, eids = edges.to.keep, delete.vertices = TRUE)
         plot(g.trump.filtered,vertex.size = 0.05, vertex.label = NA)
-        V(g.trump.filtered)
+        #V(g.trump.filtered)
         #plot(g.trump)
       #}
     
-  })
+    })
+     output$table1 <- renderDataTable(dt.by_type,options = list(lengthChange = FALSE,searching = FALSE,paging=FALSE))
+     #output$table1 <- renderText(dt.by_type)
+     output$table2 <- renderDataTable(dt.count.connections.order,options = list(lengthMenu = c(5, 30, 50), pageLength = 5))
+     
 }
 
 #UI TEST
@@ -124,25 +134,36 @@ ui <- navbarPage("TrumpWorld Data",
                      sidebarPanel(
                        
                        
-                       selectInput("var", 
+                       selectInput("connection", 
                                    label = "Choose a connection to display",
                                    choices = c("Person-Person", 
-                                               "Organization-Organizarion",
+                                               "Organization-Organization",
                                                "Person-Organization","All"),
+                                   selected = "Person-Person"),
+                       selectInput("Entity Type", 
+                                   label = "Choose an entity type",
+                                   choices = c("Person", 
+                                               "Organization",
+                                               "Federal Agency"),
                                    selected = "Person-Person"),
                        sliderInput("integer", "Integer:",
                                    min = 0, max = 1000,
                                    value = 500)
                        
                        ),
-                     mainPanel(plotOutput(outputId = "plot"))
+                     mainPanel(plotOutput(outputId = "plot"),
+                               dataTableOutput("table1"),
+                               #textOutput("table1"),
+                               dataTableOutput("table2")
+                               
+                               
+                               )
+                     
                      )
                    ),
                  tabPanel('Network Exploration',icon = icon("link", lib = "font-awesome")),
                  tabPanel("Network Analysis", icon = icon("chart-line", lib = "font-awesome"))
 )
-
-
 
 
 shinyApp(ui, server)

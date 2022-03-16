@@ -110,4 +110,4 @@ top.connection.types.plot <- function (top_number, input) {
 entity.top.centrality.plot("degree", 50)
 
 summary(g.trump)
-
+summary(dt.trump)
