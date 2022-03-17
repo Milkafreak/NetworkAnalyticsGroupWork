@@ -13,6 +13,7 @@ library(igraph)
 library(shiny)
 library(data.table)
 library(rsconnect)
+library(dplyr)
 dt.trump <- fread("TrumpWorld-Data.csv")
 
 
@@ -65,6 +66,11 @@ library(ggplot2)
   count.connections.order <- count.connections[order(-count.connections$n,),]
   dt.count.connections.order <- data.table(count.connections.order)
   
+  G.degree <- degree(g.trump)
+  G.degree.histogram <- as.data.frame(table(G.degree))
+  G.degree.histogram[,1] <- as.numeric( paste(G.degree.histogram[,1]))
+  Degree_Hist <- ggplot(data=G.degree.histogram, aes(x=G.degree, y=Freq)) +  geom_bar(stat="identity") + coord_flip() + scale_y_log10()
+  
   # Basic descriptive statistics
   #total.entities.type <- function(entity_type_category) {
     #dt.unique.entities.attributes[Entity_Type == entity_type_category, .N]
@@ -112,7 +118,20 @@ library(ggplot2)
      output$table1 <- renderDataTable(dt.by_type,options = list(lengthChange = FALSE,searching = FALSE,paging=FALSE))
      #output$table1 <- renderText(dt.by_type)
      output$table2 <- renderDataTable(dt.count.connections.order,options = list(lengthMenu = c(5, 30, 50), pageLength = 5))
+     output$DegreeTable <- renderDataTable(G.degree.histogram,options = list(lengthChange = FALSE,searching = FALSE,paging=FALSE))
      
+     output$neighbour_plot <- renderPlot({
+       entity <- input$entity
+       g.neighbors.entity <- neighbors(g.trump, V(g.trump)$name == entity)
+       g.neighbors <- induced.subgraph(g.trump, vids = (V(g.trump)%in% g.neighbors.entity) | (V(g.trump)$name == entity))
+       V(g.neighbors)$label <- ''
+       plot(g.neighbors, vertex.label.cex=0.8, vertex.label.dist=4)
+     })
+     
+    output$DegreeHist <- renderPlot({
+      plot(Degree_Hist)
+    })
+   
 }
 
 #UI TEST
@@ -123,46 +142,64 @@ library(ggplot2)
 #UI
 
 ui <- navbarPage("TrumpWorld Data", 
-                 #theme = bs_theme(bg = "white",
-                  #                fg = "midnightblue",
-                   #               primary = "maroon",
-                     #             base_font = font_google("Montserrat")),
-                 
-                 tabPanel(
-                   "Descriptive Statistics", icon = icon("bar-chart-o"),
-                   sidebarLayout(
-                     sidebarPanel(
-                       
-                       
-                       selectInput("connection", 
-                                   label = "Choose a connection to display",
-                                   choices = c("Person-Person", 
-                                               "Organization-Organization",
-                                               "Person-Organization","All"),
-                                   selected = "Person-Person"),
-                       selectInput("Entity Type", 
-                                   label = "Choose an entity type",
-                                   choices = c("Person", 
-                                               "Organization",
-                                               "Federal Agency"),
-                                   selected = "Person-Person"),
-                       sliderInput("integer", "Integer:",
-                                   min = 0, max = 1000,
-                                   value = 500)
-                       
-                       ),
-                     mainPanel(plotOutput(outputId = "plot"),
-                               dataTableOutput("table1"),
-                               #textOutput("table1"),
-                               dataTableOutput("table2")
-                               
-                               
-                               )
-                     
-                     )
-                   ),
-                 tabPanel('Network Exploration',icon = icon("link", lib = "font-awesome")),
-                 tabPanel("Network Analysis", icon = icon("chart-line", lib = "font-awesome"))
+  #theme = bs_theme(bg = "white",
+  #                fg = "midnightblue",
+  #               primary = "maroon",
+  #             base_font = font_google("Montserrat")),
+  
+  tabPanel(
+    "Descriptive Statistics", icon = icon("bar-chart-o"),
+      sidebarLayout(
+        sidebarPanel(
+
+          # sliderInput(
+          #   "integer", "Integer:",
+          #   min = 0, max = 1000,
+          #   value = 500
+          # )
+
+        ),
+        mainPanel(
+        #plotOutput(outputId = "plot"),
+        dataTableOutput("table1"),
+        dataTableOutput("table2"),
+        plotOutput("DegreeHist"),
+        dataTableOutput("DegreeTable")
+        )
+      )
+  ),
+  tabPanel(
+    'Network Exploration',icon = icon("link", lib = "font-awesome"),
+    sidebarLayout(
+      sidebarPanel(
+        selectInput("connection", 
+                    label = "Choose a connection to display",
+                    choices = c(
+                      "Person-Person", 
+                      "Organization-Organization",
+                      "Person-Organization","All"
+                    ),
+                    selected = "Person-Person"),
+        selectInput("Entity Type", 
+                    label = "Choose an entity type",
+                    choices = c("Person", 
+                                "Organization",
+                                "Federal Agency"),
+                    selected = "Person-Person"),
+        selectInput("entity", 
+        label = "Choose an entity",unique.entities,
+        selected = "ALABAMA POLICY INSTITUTE"),
+      ),
+      mainPanel(
+        plotOutput(outputId = "neighbor_plot"),
+        plotOutput(outputId = "plot")
+        
+          #dataTableOutput("table1"),
+          #dataTableOutput("table2")
+      )
+    )
+  ),
+  tabPanel("Network Analysis", icon = icon("chart-line", lib = "font-awesome"))
 )
 
 
