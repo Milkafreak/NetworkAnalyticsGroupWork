@@ -39,6 +39,10 @@ dt.trump.entityB.attributes <- dt.trump[Entity_B %in% unique.entities$name][, c(
 dt.all.entities.attributes <- rbind(dt.trump.entityA.attributes, dt.trump.entityB.attributes, use.names = FALSE)
 dt.unique.entities.attributes <- unique(dt.all.entities.attributes)
 
+g.trump <- graph.data.frame(dt.trump.connections, directed = FALSE, vertices = dt.unique.entities.attributes)
+V(g.trump)$entity_type = dt.unique.entities.attributes$Entity_A_Type
+g.tidy <- as_tbl_graph(g.trump) 
+
 by_type <- dt.unique.entities.attributes %>% count(Entity_A_Type)
 dt.by_type <- data.table(by_type)
 
@@ -51,9 +55,7 @@ G.degree.histogram <- as.data.frame(table(hist_degree))
 G.degree.histogram[,1] <- as.numeric( paste(G.degree.histogram[,1]))
 Degree_Hist <- ggplot(data=G.degree.histogram, aes(x=hist.degree, y=Freq)) +  geom_bar(stat="identity") + coord_flip() + scale_y_log10()
 
-g.trump <- graph.data.frame(dt.trump.connections, directed = FALSE, vertices = dt.unique.entities.attributes)
-V(g.trump)$entity_type = dt.unique.entities.attributes$Entity_A_Type
-g.tidy <- as_tbl_graph(g.trump) 
+
 
 
 df <- data.frame(Type = c("Person","Organization","Federal Agency"),
@@ -66,6 +68,8 @@ ui <- fluidPage(theme = shinytheme("cerulean"),
                  #                fg = "midnightblue",
                  #               primary = "maroon",
                  #             base_font = font_google("Montserrat")),
+                 
+###########################################     PANEL 1  ##########################################################################
                   tabPanel("Descriptive Statistics", icon = icon("bar-chart-o"),
                            sidebarPanel(
                              tags$h4("Adjust the slider to explore the histogram"),
@@ -83,6 +87,7 @@ ui <- fluidPage(theme = shinytheme("cerulean"),
                            )
                            
                   ), # Navbar 1, tabPanel
+###########################################     PANEL 2  ##########################################################################
                   tabPanel('Network Exploration',icon = icon("link", lib = "font-awesome"),
                            sidebarPanel(
                              tags$h4("Choose the entity types you want to observe in the network"),
@@ -104,6 +109,7 @@ ui <- fluidPage(theme = shinytheme("cerulean"),
                              
                              
                            )),
+###########################################     PANEL 3  ##########################################################################
                   tabPanel("Network Analysis", icon = icon("chart-line", lib = "font-awesome"),
                            sidebarPanel(
                              selectInput("entity", 
@@ -118,6 +124,8 @@ ui <- fluidPage(theme = shinytheme("cerulean"),
                            )
                            
                            ),
+
+###########################################     PANEL 4  ##########################################################################
                  tabPanel("New Panel", icon = icon("chart-line", lib = "font-awesome"),
                           sidebarPanel(
                             selectInput("entity.a",
@@ -139,6 +147,10 @@ ui <- fluidPage(theme = shinytheme("cerulean"),
                             selectInput("EntityType",
                                         label = "Choose an entity type",dt.by_type$Entity_A_Type,
                                         selected = "Organization"),
+                            sliderInput("top_number", "Top X Connections between given entity types",
+                                        min = 0, max = 25, value = 5
+                            ),
+                            
 
                           ),
                           mainPanel(
@@ -146,7 +158,8 @@ ui <- fluidPage(theme = shinytheme("cerulean"),
 
                             plotOutput(outputId = "predicted.links"),
                             plotOutput(outputId = "top.entity.connection.types.plot.plot"),
-                            plotOutput(outputId = "explore.subgraph")
+                            plotOutput(outputId = "explore.subgraph"),
+                            textOutput("topConnectionTypes")
                           )
 
                  ),
@@ -158,6 +171,7 @@ ui <- fluidPage(theme = shinytheme("cerulean"),
 # Define server function  
 server <- function(input, output) {
   
+#######################################################################   REACTIVES   ##########################################################################  
   g.tidy.x <- reactive({
     df[df["Type"] == "Person",]$Appear = input$check_Person
     df[df["Type"] == "Organization",]$Appear = input$check_Organization
@@ -178,6 +192,13 @@ server <- function(input, output) {
     g.trump.filtered
   })
   
+  top.entities.type.text <- reactive({
+    df.top321 <- unique(dt.trump[Entity_A_Type == input$entity.a][Entity_B_Type == input$entity.b][, count_connections := .N, by = "Connection"]
+           [order(-count_connections)], by = "Connection")[1:input$top_number][, !c("Entity_A", "Entity_B", "Sources")]
+    df.top123 <- data.frame(df.top321)[c("Connection","count_connections")]
+    return(df.top123)
+  })
+  
   plot.predicted.links1 <- reactive({
     
     g.entity.type <- entity.type.plot() #entity.type.plot()
@@ -190,7 +211,7 @@ server <- function(input, output) {
     E(g.predicted.edges)$width <- E(g.predicted.edges)$weight * 2
     edges.to.keep <- E(g.predicted.edges)[which(E(g.predicted.edges)$weight == input$weight)]
     g.weighted.edges <- subgraph.edges(g.predicted.edges, edges.to.keep, delete.vertices = TRUE)
-    #plot(g.weighted.edges, vertex.label = ifelse(degree(g.weighted.edges) > 4, V(g.weighted.edges)$name, NA))
+    g.weighted.edges <- plot(g.weighted.edges,vertex.size = 5, vertex.label = ifelse(degree(g.weighted.edges) > 4, V(g.weighted.edges)$name, NA))
     g.weighted.edges
   })
   
@@ -199,7 +220,7 @@ server <- function(input, output) {
     subgraph.gtrump <- delete.vertices(g.trump, vertices.to.delete)
     edges.to.keep <- E(subgraph.gtrump)[which(E(subgraph.gtrump)$Connection == input$connection_type)]
     g.trump.filtered <- subgraph.edges(subgraph.gtrump, eids = edges.to.keep, delete.vertices = TRUE)
-    plot(g.trump.filtered, vertex.size = 1, vertex.label = ifelse(degree(g.trump.filtered) > input$n_degree, V(g.trump.filtered)$name, NA))
+    plot(g.trump.filtered, vertex.size = 0.05, vertex.label = ifelse(degree(g.trump.filtered) > input$n_degree, V(g.trump.filtered)$name, NA))
     g.trump.filtered
   })
   
@@ -214,11 +235,9 @@ server <- function(input, output) {
     g.connection <- g.connection.entity.decomposed[[largest]]
     g.connection
   })
-  
-  output$txtout <- renderText({
-    paste( input$entity.a, input$entity.b, sep = " " )
-  })
-  
+
+#######################################################################   FUNCTIONS   ##########################################################################  
+    
   neighbors_plotting <- function() {
     entity <- input$entity
     g.neighbors.entity <- neighbors(g.trump, V(g.trump)$name == entity)
@@ -226,6 +245,14 @@ server <- function(input, output) {
     #V(g.neighbors)$label <- ''
     g.neighbors
   }
+  
+#######################################################################   OUTPUTS   ##########################################################################  
+  
+  output$txtout <- renderText({
+    paste( input$entity.a, input$entity.b, sep = " " )
+  })
+  
+  
   
   output$value <- renderText({ input$somevalue })
   output$transitivity <- renderText({ paste("The clustering coefficient of the given network is: ",transitivity(g.tidy.x())) })
@@ -256,47 +283,18 @@ server <- function(input, output) {
   })
   
   output$explore.subgraph<- renderPlot({
-    plot(explore.subgraph())
+    plot(explore.subgraph(),layout=layout.fruchterman.reingold,
+         vertex.label.cex = .5,
+         vertex.size = 5,
+         edge.arrow.size = .1)
   })
+  
+  output$topConnectionTypes <- DT::renderDataTable(top.entities.type.text(),options = list(lengthChange = FALSE,searching = FALSE,paging=FALSE))
   
   output$txtOut <- renderText(input$entity)
   
-  
- 
-
-  
-  # entity.type.plot <- function() {
-  #   entity_connection <- paste(input$entity_a, input$entity_b, sep="")
-  #   
-  #   
-  #   if (entity_connection == "PersonPerson") {
-  #     edges.to.keep <- E(g.trump)[which(E(g.trump)$entity_type_connection == "PersonPerson")]
-  #   } else if (entity_connection == "OrganizationOrganization") {
-  #     edges.to.keep <- E(g.trump)[which(E(g.trump)$entity_type_connection == "OrganizationOrganization")]
-  #   } else {edges.to.keep <- E(g.trump)[which(E(g.trump)$entity_type_connection == c("OrganizationPerson", "PersonOrganization"))]
-  #   } 
-  #   g.trump.filtered <- subgraph.edges(g.trump, eids = edges.to.keep, delete.vertices = TRUE)
-  #   g.trump.filtered
-  # }
-  
-  # plot.predicted.links1 <- function() {
-  #   
-  #   g.entity.type <- entity.type.plot()
-  #   m.predicted.edges <-
-  #     as.matrix(cocitation(g.entity.type) * (1-get.adjacency(g.entity.type)))
-  #   g.predicted.edges <-
-  #     graph_from_adjacency_matrix(m.predicted.edges,
-  #                                 mode = "undirected",
-  #                                 weighted = TRUE)
-  #   E(g.predicted.edges)$width <- E(g.predicted.edges)$weight * 2
-  #   edges.to.keep <- E(g.predicted.edges)[which(E(g.predicted.edges)$weight == input$weight)]
-  #   g.weighted.edges <- subgraph.edges(g.predicted.edges, edges.to.keep, delete.vertices = TRUE)
-  #   #plot(g.weighted.edges, vertex.label = ifelse(degree(g.weighted.edges) > 4, V(g.weighted.edges)$name, NA))
-  #   g.weighted.edges
-  # }
-  
   output$predicted.links <- renderPlot({
-    plot(plot.predicted.links1())
+    plot.predicted.links1()
   })
 } # server
 
