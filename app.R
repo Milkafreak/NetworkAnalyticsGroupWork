@@ -9,13 +9,20 @@ library(shinythemes)
 library(tidygraph)
 library(DT)
 library(bslib)
+library(ggplot2)
 
 
 # Load data
 dt.trump <- fread("TrumpWorld-Data.csv")
 
+
+
 # Change column names 
 colnames(dt.trump) <- c("Entity_A_Type", "Entity_A", "Entity_B_Type", "Entity_B", "Connection", "Sources")
+
+
+dt.trump <- dt.trump %>% mutate(entity_type_connection = paste(Entity_A_Type,Entity_B_Type))
+
 
 # Retrieve vertices
 all.entity.A <- dt.trump[, list(name=unique(Entity_A))]
@@ -24,7 +31,7 @@ all.entities <- rbind(all.entity.A, all.entity.B)
 unique.entities <- unique(all.entities)
 
 #Relationship Table with Connection as Edge attribute
-dt.trump.connections <- dt.trump[, c("Entity_A", "Entity_B", "Connection")]
+dt.trump.connections <- dt.trump[, c("Entity_A", "Entity_B", "Connection","entity_type_connection")]
 
 # Retrieve vertices attributes (type)
 dt.trump.entityA.attributes <- dt.trump[Entity_A %in% unique.entities$name][, c("Entity_A", "Entity_A_Type")]
@@ -111,6 +118,27 @@ ui <- fluidPage(theme = shinytheme("cerulean"),
                            )
                            
                            ),
+                 tabPanel("New Panel", icon = icon("chart-line", lib = "font-awesome"),
+                          sidebarPanel(
+                            selectInput("entity.a",
+                                        label = "Choose an entity type for type A",c("Person","Organization"),
+                                        selected = "Person")
+                            ,
+                            selectInput("entity.b",
+                                        label = "Choose an entity type for type B",c("Person","Organization"),
+                                        selected = "Person"),
+                            selectInput("weight",
+                                        label = "Choose an assigned weight",c(1,2,3,4),
+                                        selected = "Person"),
+
+                          ),
+                          mainPanel(
+                            #verbatimTextOutput("txtOut"),
+
+                            plotOutput(outputId = "predicted.links"),
+                          )
+
+                 ),
                   
                 ) # navbarPage
 ) # fluidPage
@@ -127,8 +155,33 @@ server <- function(input, output) {
     g.tidy.x
   })
   
+  entity.type.plot <- reactive({
+    entity_connection <- paste(input$entity.a, input$entity.b, sep=" ")
+    if (entity_connection == "Person Person") {
+      edges.to.keep <- E(g.trump)[which(E(g.trump)$entity_type_connection == "Person Person")]
+    } else if (entity_connection == "Organization Organization") {
+      edges.to.keep <- E(g.trump)[which(E(g.trump)$entity_type_connection == "Organization Organization")]
+    } else {edges.to.keep <- E(g.trump)[which(E(g.trump)$entity_type_connection == c("Organization Person", "Person Organization"))]
+    } 
+    g.trump.filtered <- subgraph.edges(g.trump, eids = edges.to.keep, delete.vertices = TRUE)
+    #g.trump.filtered
+    
+    g.entity.type <- g.trump.filtered #entity.type.plot()
+    m.predicted.edges <-
+      as.matrix(cocitation(g.entity.type) * (1-get.adjacency(g.entity.type)))
+    g.predicted.edges <-
+      graph_from_adjacency_matrix(m.predicted.edges,
+                                  mode = "undirected",
+                                  weighted = TRUE)
+    E(g.predicted.edges)$width <- E(g.predicted.edges)$weight * 2
+    edges.to.keep <- E(g.predicted.edges)[which(E(g.predicted.edges)$weight == input$weight)]
+    g.weighted.edges <- subgraph.edges(g.predicted.edges, edges.to.keep, delete.vertices = TRUE)
+    #plot(g.weighted.edges, vertex.label = ifelse(degree(g.weighted.edges) > 4, V(g.weighted.edges)$name, NA))
+    g.weighted.edges
+  })
+  
   output$txtout <- renderText({
-    paste( input$txt1, input$txt2, sep = " " )
+    paste( input$entity.a, input$entity.b, sep = " " )
   })
   
   neighbors_plotting <- function() {
@@ -163,6 +216,44 @@ server <- function(input, output) {
     plot(neighbors_plotting())
   })
   output$txtOut <- renderText(input$entity)
+  
+  
+ 
+
+  
+  # entity.type.plot <- function() {
+  #   entity_connection <- paste(input$entity_a, input$entity_b, sep="")
+  #   
+  #   
+  #   if (entity_connection == "PersonPerson") {
+  #     edges.to.keep <- E(g.trump)[which(E(g.trump)$entity_type_connection == "PersonPerson")]
+  #   } else if (entity_connection == "OrganizationOrganization") {
+  #     edges.to.keep <- E(g.trump)[which(E(g.trump)$entity_type_connection == "OrganizationOrganization")]
+  #   } else {edges.to.keep <- E(g.trump)[which(E(g.trump)$entity_type_connection == c("OrganizationPerson", "PersonOrganization"))]
+  #   } 
+  #   g.trump.filtered <- subgraph.edges(g.trump, eids = edges.to.keep, delete.vertices = TRUE)
+  #   g.trump.filtered
+  # }
+  
+  # plot.predicted.links1 <- function() {
+  #   
+  #   g.entity.type <- entity.type.plot()
+  #   m.predicted.edges <-
+  #     as.matrix(cocitation(g.entity.type) * (1-get.adjacency(g.entity.type)))
+  #   g.predicted.edges <-
+  #     graph_from_adjacency_matrix(m.predicted.edges,
+  #                                 mode = "undirected",
+  #                                 weighted = TRUE)
+  #   E(g.predicted.edges)$width <- E(g.predicted.edges)$weight * 2
+  #   edges.to.keep <- E(g.predicted.edges)[which(E(g.predicted.edges)$weight == input$weight)]
+  #   g.weighted.edges <- subgraph.edges(g.predicted.edges, edges.to.keep, delete.vertices = TRUE)
+  #   #plot(g.weighted.edges, vertex.label = ifelse(degree(g.weighted.edges) > 4, V(g.weighted.edges)$name, NA))
+  #   g.weighted.edges
+  # }
+  
+  output$predicted.links <- renderPlot({
+    plot(entity.type.plot())
+  })
 } # server
 
 
