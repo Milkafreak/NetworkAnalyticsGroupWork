@@ -129,13 +129,24 @@ ui <- fluidPage(theme = shinytheme("cerulean"),
                                         selected = "Person"),
                             selectInput("weight",
                                         label = "Choose an assigned weight",c(1,2,3,4),
-                                        selected = "Person"),
+                                        selected = "1"),
+                            selectInput("n_degree",
+                                        label = "Choose a n_degree",c(1,2,3,4),
+                                        selected = "1"),
+                            selectInput("connection_type",
+                                        label = "Choose connection type",dt.trump.connections$Connection,
+                                        selected = "Investor"),
+                            selectInput("EntityType",
+                                        label = "Choose an entity type",dt.by_type$Entity_A_Type,
+                                        selected = "Organization"),
 
                           ),
                           mainPanel(
                             #verbatimTextOutput("txtOut"),
 
                             plotOutput(outputId = "predicted.links"),
+                            plotOutput(outputId = "top.entity.connection.types.plot.plot"),
+                            plotOutput(outputId = "explore.subgraph")
                           )
 
                  ),
@@ -164,9 +175,12 @@ server <- function(input, output) {
     } else {edges.to.keep <- E(g.trump)[which(E(g.trump)$entity_type_connection == c("Organization Person", "Person Organization"))]
     } 
     g.trump.filtered <- subgraph.edges(g.trump, eids = edges.to.keep, delete.vertices = TRUE)
-    #g.trump.filtered
+    g.trump.filtered
+  })
+  
+  plot.predicted.links1 <- reactive({
     
-    g.entity.type <- g.trump.filtered #entity.type.plot()
+    g.entity.type <- entity.type.plot() #entity.type.plot()
     m.predicted.edges <-
       as.matrix(cocitation(g.entity.type) * (1-get.adjacency(g.entity.type)))
     g.predicted.edges <-
@@ -178,6 +192,27 @@ server <- function(input, output) {
     g.weighted.edges <- subgraph.edges(g.predicted.edges, edges.to.keep, delete.vertices = TRUE)
     #plot(g.weighted.edges, vertex.label = ifelse(degree(g.weighted.edges) > 4, V(g.weighted.edges)$name, NA))
     g.weighted.edges
+  })
+  
+  top.entity.connection.types.plot <- reactive ({
+    vertices.to.delete <- V(g.trump)[which(V(g.trump)$Entity_Type != input$EntityType)]
+    subgraph.gtrump <- delete.vertices(g.trump, vertices.to.delete)
+    edges.to.keep <- E(subgraph.gtrump)[which(E(subgraph.gtrump)$Connection == input$connection_type)]
+    g.trump.filtered <- subgraph.edges(subgraph.gtrump, eids = edges.to.keep, delete.vertices = TRUE)
+    plot(g.trump.filtered, vertex.size = 1, vertex.label = ifelse(degree(g.trump.filtered) > input$n_degree, V(g.trump.filtered)$name, NA))
+    g.trump.filtered
+  })
+  
+  explore.subgraph <- reactive ({
+    g.entity.type1 <- entity.type.plot()  #Already only entities interested
+    edges.to.keep <- E(g.entity.type1)[which(E(g.entity.type1)$Connection == input$connection_type)]
+    g.connection.entity <- subgraph.edges(g.entity.type1, eids = edges.to.keep, delete.vertices = TRUE)
+    which.max(degree(g.connection.entity))
+    g.connection.entity.decomposed <- decompose(g.connection.entity)
+    largest <- which.max(sapply(g.connection.entity.decomposed, diameter))
+    print(largest)
+    g.connection <- g.connection.entity.decomposed[[largest]]
+    g.connection
   })
   
   output$txtout <- renderText({
@@ -215,6 +250,15 @@ server <- function(input, output) {
   output$neighbor_plot <- renderPlot({
     plot(neighbors_plotting())
   })
+  
+  output$top.entity.connection.types.plot.plot <- renderPlot({
+    plot(top.entity.connection.types.plot())
+  })
+  
+  output$explore.subgraph<- renderPlot({
+    plot(explore.subgraph())
+  })
+  
   output$txtOut <- renderText(input$entity)
   
   
@@ -252,7 +296,7 @@ server <- function(input, output) {
   # }
   
   output$predicted.links <- renderPlot({
-    plot(entity.type.plot())
+    plot(plot.predicted.links1())
   })
 } # server
 
