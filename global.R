@@ -1,11 +1,18 @@
 library(data.table)
 library(igraph)
+library(ggplot2)
+library(shiny)
 
 # Load data
 dt.trump <- fread("TrumpWorld-Data.csv")
 
+
 # Change column names 
 colnames(dt.trump) <- c("Entity_A_Type", "Entity_A", "Entity_B_Type", "Entity_B", "Connection", "Sources")
+
+
+dt.trump <- dt.trump %>% mutate(entity_type_connection = paste(Entity_A_Type,Entity_B_Type))
+
 
 # Retrieve vertices
 all.entity.A <- dt.trump[, list(name=unique(Entity_A))]
@@ -13,101 +20,53 @@ all.entity.B <- dt.trump[, list(name=unique(Entity_B))]
 all.entities <- rbind(all.entity.A, all.entity.B)
 unique.entities <- unique(all.entities)
 
+#Relationship Table with Connection as Edge attribute
+dt.trump.connections <- dt.trump[, c("Entity_A", "Entity_B", "Connection","entity_type_connection")]
+
 # Retrieve vertices attributes (type)
 dt.trump.entityA.attributes <- dt.trump[Entity_A %in% unique.entities$name][, c("Entity_A", "Entity_A_Type")]
 dt.trump.entityB.attributes <- dt.trump[Entity_B %in% unique.entities$name][, c("Entity_B", "Entity_B_Type")]
 dt.all.entities.attributes <- rbind(dt.trump.entityA.attributes, dt.trump.entityB.attributes, use.names = FALSE)
 dt.unique.entities.attributes <- unique(dt.all.entities.attributes)
 
-# Change Names of Columns
-colnames(dt.unique.entities.attributes) <- c("Name", "Entity_Type")
-colnames(dt.all.entities.attributes) <- c("Name", "Entity_Type", "Entity_Count")
-
-#Relationship Table with Connection as Edge attribute
-dt.trump.connections <- dt.trump[, c("Entity_A", "Entity_B", "Connection")]
-
-# Build undirected graph
+# Create undirected graph
 g.trump <- graph.data.frame(dt.trump.connections, directed = FALSE, vertices = dt.unique.entities.attributes)
-plot(g.trump, vertex.size = 0.05, vertex.label = NA)
-
-# Basic descriptive statistics
-total.entities.type <- function(entity_type_category) {
-  dt.unique.entities.attributes[Entity_Type == entity_type_category, .N]
-}
-total.entities.person <- total.entities.type("Person")
-total.entities.person <- total.entities.type("Organization")
-total.entities.person <- total.entities.type("Federal Agency")
-
-top.entities.name <- function(top_number) {
-  unique(dt.all.entities.attributes[, entity_name_count := .N, by=Name][order(-entity_name_count)])[1:top_number]
-}
-
-#Create top N by organization type
-
-top.entities.type <- function(entity_type_category, top_number) {
-  unique(dt.all.entities.attributes[, entity_name_count := .N, by=Name][Entity_Type == entity_type_category][order(-entity_name_count)])[1:top_number]
-}
-
-top.entities.type("Organization", 10)
+V(g.trump)$entity_type <- dt.unique.entities.attributes$Entity_A_Type
+g.tidy <- as_tbl_graph(g.trump) 
 
 
-# Create function to build subgraphs
+# Create datatable with number of observations
+by_type <- dt.unique.entities.attributes %>% count(Entity_A_Type)
+dt.by_type <- data.table(by_type)
+colnames(dt.by_type) <- c("Entity_Type", "Number_of_Observations")
 
-entity.type.plot <- function(g.trump, entity_type_1, entity_type_2) {
-  entity_connection <- paste(entity_type_1, entity_type_2, sep="")
-  el <- get.edgelist(g.trump)
-  E(g.trump)$entity_type_connection <- paste(V(g.trump)[el[, 1]]$Entity_Type, V(g.trump)[el[, 2]]$Entity_Type, sep = "")
-  if (entity_connection == "PersonPerson") {
-    edges.to.keep <- E(g.trump)[which(E(g.trump)$entity_type_connection == "PersonPerson")]
-  } else if (entity_connection == "OrganizationOrganization") {
-    edges.to.keep <- E(g.trump)[which(E(g.trump)$entity_type_connection == "OrganizationOrganization")]
-  } else {edges.to.keep <- E(g.trump)[which(E(g.trump)$entity_type_connection == c("OrganizationPerson", "PersonOrganization"))]
-  } 
-  g.trump.filtered <- subgraph.edges(g.trump, eids = edges.to.keep, delete.vertices = TRUE)
-  plot(g.trump.filtered)
-  V(g.trump.filtered)
-}
+# Create bar chart for previous data table
+bar.plot.entities <- ggplot(dt.by_type, aes(x=Entity_Type, y=Number_of_Observations)) + 
+  geom_bar(stat = "identity")
 
 
-entity.type.plot(g.trump, "Person", "Person")
+# Create datatable with number of connection
+count.connections <- dt.trump.connections %>% count(Connection)
+count.connections.order <- count.connections[order(-count.connections$n,),]
+dt.count.connections.order <- data.table(count.connections.order)
+colnames(dt.count.connections.order) <- c("Connection_Type", "Number_of_Observations")
+dt.top.connections <- head(dt.count.connections.order[order(-rank(Number_of_Observations))], 6)
+
+# Create bar chart for previous data table
+bar.plot.connections <- ggplot(dt.top.connections, aes(x=Connection_Type, y=Number_of_Observations)) + 
+  geom_bar(stat = "identity")
 
 
-# Create function that calculates centrality measure (locally) and retrieves top N, highlights them in network
+# Create histogram with degree distribution
+hist_degree <- degree(g.trump)
+degree.histogram <- as.data.frame(table(hist_degree))
+degree.histogram[,1] <- as.numeric( paste(degree.histogram[,1]))
+degree_hist <- ggplot(data=degree.histogram, aes(x=hist.degree, y=Freq)) +  geom_bar(stat="identity") + coord_flip() + scale_y_log10()
 
-entity.top.centrality.plot <- function(measure, top_number)  {
-  dt.centrality <- data.table(Node=V(g.trump)$name,
-             Degree=degree(g.trump),
-             Closeness=round(closeness(g.trump), 2),
-             Betweenness=betweenness(g.trump),
-             Eigenvector=round(evcent(g.trump)$vector, 2))
-  if (measure %in% c("Betweenness", "betweenness")){
-    data.sorted <- dt.centrality[order(dt.centrality$Betweenness, decreasing = TRUE), ]
-    top.nodes <- head(data.sorted, top_number)
-  } else if (measure %in% c("degree", "Degree"))  {
-    data.sorted <- dt.centrality[order(dt.centrality$Degree, decreasing = TRUE), ] 
-    top.nodes <- head(data.sorted, top_number)
-  } else if (measure %in% c("closeness", "Closeness")) {
-    data.sorted <- dt.centrality[order(dt.centrality$Closeness, decreasing = TRUE), ]
-    top.nodes <- head(data.sorted, top_number)
-  }  else {data.sorted <- dt.centrality[order(dt.centrality$Eigenvector, decreasing = TRUE), ]
-  top.nodes <- head(data.sorted, top_number)
-  }
-  V(g.trump)$color <- ifelse(V(g.trump)$name %in% top.nodes[,1], "red", "blue")
-  plot(g.trump, vertex.label = NA, vertex.size = 0.5)
-}
 
-# Top 10 connection types
+# Create dataframe with only "Person","Organization" and "Federal Agency"
+df <- data.frame(Type = c("Person","Organization","Federal Agency"),
+                 Appear = c(TRUE,TRUE,TRUE))
 
-top.connection.types.plot <- function (top_number, input) {
-  
-  
-}
-  
-  
-#Calculate top 10 connection type
-#User selects 
-#Create subgraph
-entity.top.centrality.plot("degree", 50)
-
-summary(g.trump)
-
+#load("nda-similarity.RData")
+load("trump.RData")
